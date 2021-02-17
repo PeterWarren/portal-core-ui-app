@@ -27,10 +27,14 @@ export class LayerStatusService {
     const me = this;
     timer(0, 15 * 60 * 1000).subscribe(() => { // will execute every 15 minutes
       return this.http.get(this.env.portalBaseUrl + this.env.getCSWRecordUrl)
-        .subscribe((response) => {
-          const layerList = response['data'];
-          layerList.forEach(function (item, i) {
-            me.layerStatusMap.set(item.id, item.stackdriverFailingHosts);
+        .subscribe(
+          (response) => {
+              const layerList = response['data'];
+              layerList.forEach(function (item, i) {
+              me.layerStatusMap.set(item.id, item.stackdriverFailingHosts);
+          }, 
+          error => {
+              console.error('Error retrieving layer status from stackdriver:', error);
           });           
        });
     });
