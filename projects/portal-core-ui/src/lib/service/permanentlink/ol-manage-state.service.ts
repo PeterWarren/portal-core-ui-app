@@ -1,5 +1,5 @@
 import { UtilitiesService } from '../../utility/utilities.service';
-import { CsMapObject } from '../cesium-map/cs-map-object';
+import { OlMapObject } from '../openlayermap/ol-map-object';
 import {Injectable} from '@angular/core';
 import * as _ from 'lodash';
 
@@ -11,14 +11,14 @@ declare var LZMA: any;
  */
 // @dynamic
 @Injectable()
-export class ManageStateService {
+export class OlManageStateService {
 
   private state: any = {};
   private compressedLink: string;
   private unCompressedStringCache: any;
 
 
-  constructor(private csMapObject: CsMapObject) {
+  constructor(private olMapObject: OlMapObject) {
   }
 
   /**
@@ -65,16 +65,12 @@ export class ManageStateService {
   }
 
   /**
-   * TODO: Reimplement for Cesium
    * return the current state
    * @return return the state in the format layerid:{filterCollection,optionalFilters,map{zoom, center}}
    */
   public getState(): any {
-    /*
-    this.state.map = this.csMapObject.getCurrentMapState();
+    this.state.map = this.olMapObject.getCurrentMapState();
     return this.state;
-    */
-   return null;
   }
 
   /**
@@ -94,15 +90,12 @@ export class ManageStateService {
   }
 
   /**
-   * TODO: Reimplement for Cesium
    * resume the state of the map given the map state
    */
   public resumeMapState(mapState) {
-    /*
     if (mapState) {
-      this.csMapObject.resumeMapState(mapState);
+      this.olMapObject.resumeMapState(mapState);
     }
-    */
   }
 
   /**

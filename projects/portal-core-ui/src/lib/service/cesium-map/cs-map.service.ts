@@ -1,12 +1,9 @@
 import { CSWRecordModel } from '../../model/data/cswrecord.model';
 import { Injectable, Inject } from '@angular/core';
 import * as olExtent from 'ol/extent';
-import olLayerVector from 'ol/layer/Vector';
-import olLayer from 'ol/layer/Layer';
-import olFeature from 'ol/Feature';
 import * as olProj from 'ol/proj';
 import {BehaviorSubject, Subject } from 'rxjs';
-import { Feature, point, Polygon } from '@turf/helpers';
+import { point } from '@turf/helpers';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import bboxPolygon from '@turf/bbox-polygon';
 import { LayerModel } from '../../model/data/layer.model';
@@ -20,8 +17,8 @@ import { CsWWWService } from '../www/cs-www.service';
 import { ResourceType } from '../../utility/constants.service';
 import { CsIrisService } from '../kml/cs-iris.service';
 import { MapsManagerService, RectangleEditorObservable, EventRegistrationInput, CesiumEvent, PickOptions, EventResult } from 'angular-cesium';
-import { ProviderViewModel, buildModuleUrl, OpenStreetMapImageryProvider, BingMapsStyle, BingMapsImageryProvider,
-  ArcGisMapServerImageryProvider, TileMapServiceImageryProvider, Cartesian2, WebMercatorProjection,  ImagerySplitDirection} from 'cesium';
+import { Entity, ProviderViewModel, buildModuleUrl, OpenStreetMapImageryProvider, BingMapsStyle, BingMapsImageryProvider,
+  ArcGisMapServerImageryProvider, TileMapServiceImageryProvider, Cartesian2, WebMercatorProjection,  ImagerySplitDirection } from 'cesium';
 declare var Cesium: any;
 
 /**
@@ -31,7 +28,7 @@ declare var Cesium: any;
 export class CsMapService {
 
   // VT: a storage to keep track of the layers that have been added to the map. This is use to handle click events.
-  private layerModelList: { [key: string]: LayerModel; } = {};
+  private layerModelList: Map<string, LayerModel> = new Map<string, LayerModel>();
   private addLayerSubject: Subject<LayerModel>;
 
   private clickedLayerListBS = new BehaviorSubject<any>({});
@@ -54,8 +51,7 @@ export class CsMapService {
   init() {
     this.map = this.mapsManagerService.getMap();
     const eventRegistration: EventRegistrationInput = {
-      event: CesiumEvent.LEFT_CLICK, // Left mouse click
-      pick: PickOptions.PICK_ONE // If lots of things are picked a 'picker' will help you choose one
+      event: CesiumEvent.LEFT_CLICK
     };
     const mapEventManager = this.mapsManagerService.getMap().getMapEventsManager();
     const clickEvent = mapEventManager.register(eventRegistration).subscribe((result) => {
@@ -80,9 +76,29 @@ export class CsMapService {
    }
 
    /**
-    * Gets called when a map click event is recognised
-    * @param pixel coordinates of clicked on pixel (units: pixels)
+    * Pick all Entities at the given position
+    * @param windowPosition window position of mouse click event
+    * @returns an Array of Cesium.Entity objects at specified position
     */
+   pickEntities(windowPosition: Cartesian2): Entity[] {
+    const pickedPrimitives = this.getViewer().scene.drillPick(windowPosition);
+    const result = [];
+    const hash = {};
+    for (const picked of pickedPrimitives) {
+      const entity = Cesium.defaultValue(picked.id, picked.primitive.id);
+      if (entity instanceof Cesium.Entity &&
+          !Cesium.defined(hash[entity.id])) {
+        result.push(entity);
+        hash[entity.id] = true;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Gets called when a map click event is recognised
+   * @param pixel coordinates of clicked on pixel (units: pixels)
+   */
   public mapClickHandler(eventResult: EventResult) {
     try {
       const me = this;
@@ -154,43 +170,21 @@ export class CsMapService {
         }
       }
 
-      // tslint:disable-next-line:only-arrow-functions
-      /*             layerColl.forEach(function(layer) {
-                    for (const layerId in activeLayers) {
-                      const layerModel = activeLayers[layerId];
-                        if (layer === layerModel) {
-                          if (!me.layerHandlerService.contains(layerModel, ResourceType.WMS)) {
-                            continue;
-                          }
-                          const bbox = layerModel.onlineResource.geographicElements[0];
-                          const poly = bboxPolygon([bbox.westBoundLongitude, bbox.southBoundLatitude, bbox.eastBoundLongitude, bbox.northBoundLatitude]);
-                          if (booleanPointInPolygon(clickPoint, poly) && !clickedLayerList.includes(layerModel)) {
-                            // Add to list of clicked layers
-                            clickedLayerList.push(layerModel);
-                          }
-                        }
-                    }
-                  }, me); */
-
-      // Compile a list of clicked on features
-      const clickedFeatureList: olFeature[] = [];
-      /*
-      const featureHit = this.map.forEachFeatureAtPixel(pixel, function(feature) {  // FIXME
-         // LJ: skip the olFeature
-         if (feature.get('bClipboardVector')) {
-           return;
-         }
-         clickedFeatureList.push(feature);
-      }); */
-      if (clickedFeatureList.length || clickedLayerList.length) {
+      // Compile a list of clicked on entities
+      const clickedEntityList: any[] = [];
+      const pickedEntities: any[] = this.pickEntities(mousePosition);
+      for (const entity of pickedEntities) {
+        // TODO: Filter out polygon filter?
+        clickedEntityList.push(entity);
+      }
+      if (clickedEntityList.length || clickedLayerList.length) {
         this.clickedLayerListBS.next({
-          clickedFeatureList,
+          clickedEntityList,
           clickedLayerList,
           pixel,
           clickCoord
         });
       }
-
     } catch (error) {
       throw error;
     }
@@ -198,7 +192,9 @@ export class CsMapService {
 
   /*
    * Return a list of CSWRecordModels present in active layers that intersect
-   * the supplied extent
+   * the supplied extent.
+   * 
+   * TODO: Get rid of olExtent and olProj
    *
    * @param extent the extent with which to test the intersection of CSW
    * records
@@ -404,6 +400,23 @@ export class CsMapService {
   }
 
   /**
+   * Find which layer (if any) contains the given Cesium.Entity
+   * @param entity the Cesium.Entity
+   * @returns the LayerModel containing the Cesium
+   */
+  public getLayerForEntity(entity: Entity): LayerModel {
+    for (const key of Object.keys(this.layerModelList)) {
+      const layer = this.layerModelList[key];
+      for (const csLayer of layer.csLayers) {
+          if (csLayer.entities && csLayer.entities.values.indexOf(entity) !== -1) {
+              return layer;
+          }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Set the opacity of a layer
    * @param layerId the ID of the layer to change opacity
    * @param opacity the value of opacity between 0.0 and 1.0
@@ -421,7 +434,7 @@ export class CsMapService {
   /**
    * Retrieve the active layer list
    */
-  public getLayerModelList(): { [key: string]: LayerModel; } {
+  public getLayerModelList(): Map<string, LayerModel> {
     return this.layerModelList;
   }
 
@@ -434,7 +447,30 @@ export class CsMapService {
    * @param extent An array of numbers representing an extent: [minx, miny, maxx, maxy]
    */
   public fitView(extent: [number, number, number, number]): void {
-      // FIXME this.map.getMap().getView().fit(extent);
+    const northWest = olProj.toLonLat([extent[0], extent[1]]);
+    const northEast = olProj.toLonLat([extent[2], extent[1]]);
+    const southEast = olProj.toLonLat([extent[2], extent[3]]);
+    const southWest = olProj.toLonLat([extent[0], extent[3]]);
+    const extentPoly = this.getViewer().entities.add({
+      polygon : {
+        hierarchy : Cesium.Cartesian3.fromDegreesArray([
+          northWest[0], northWest[1],
+          northEast[0], northEast[1],
+          southEast[0], southEast[1],
+          southWest[0], southWest[1]
+        ]),
+        height : 0,
+        material : new Cesium.Color(128, 128, 128, 0.25),
+        outline : true,
+        outlineColor : Cesium.Color.BLACK
+      }
+    });
+    // Leave the highlight for 2 seconds after zooming, then remove
+    this.getViewer().zoomTo(extentPoly).then(() => {
+      setTimeout(() => {
+        this.getViewer().entities.remove(extentPoly);
+      }, 2000);
+    });
   }
 
   /**
@@ -458,67 +494,6 @@ export class CsMapService {
   public drawBound(): RectangleEditorObservable {
     return this.csMapObject.drawBox();
   }
-
-  /**
-    * Method for drawing a dot on the map.
-    * @returns the layer vector on which the dot is drawn on. This provides a handle for the dot to be deleted
-    */
-  public drawDot(coord): olLayerVector {
-    // FIXME return this.csMapObject.drawDot(coord);
-    return null;
-  }
-
-  /**
-  * Method for drawing a polygon on the map.
-  * @returns the polygon coordinates string BS on which the polygon is drawn on.
-  */
-  public drawPolygon(): BehaviorSubject<olLayerVector> {
-    // FIXME return this.csMapObject.drawPolygon();
-    return null;
-  }
-
-  /**
-   * remove a vector layer from the map
-   * @param the vector layer to be removed
-   */
-  public removeVector(vector: olLayerVector) {
-    // FIXME this.csMapObject.removeVector(vector);
-  }
-
-  /**
-   * Return the extent of the overall map
-   * @returns the map extent
-   */
-  public getMapExtent(): olExtent {
-    // FIXME return this.csMapObject.getMapExtent();
-    return null;
-  }
-
-  /**
-   * Draw an extent on the map object
-   * @param extent the extent to display on the map
-   * @param duration (Optional) the length of time in milliseconds to display
-   * the extent before it is removed. If not supplied the extent will not be removed.
-   */
-  public displayExtent(extent: olExtent, duration?: number) {
-    // FIXME this.csMapObject.displayExtent(extent, duration);
-  }
-
-  /**
-   * Call updateSize on map to handle scale changes
-   */
-  public updateSize() {
-    // FIXME this.csMapObject.updateSize();
-  }
-
-  /**
-   * Change the OL Map's basemap
-   * @param baseMap the basemap's ID value (string)
-   */
-  public switchBaseMap(baseMap: string) {
-    // this.csMapObject.switchBaseMap(baseMap);
-  }
-
 
   /**
    * Create a list of base maps from the environment file
@@ -669,4 +644,3 @@ export class CsMapService {
   }
 
 }
-
