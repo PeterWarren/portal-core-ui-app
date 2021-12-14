@@ -513,17 +513,11 @@ export class CsWMSService {
                     return;
                   }
                   const browserName = UtilitiesService.getBrowserName();
-                  if (browserName === 'Safari' || browserName === 'Firefox'){
-                    return createImageBitmap(blob);
-                  } else {
-                    // This was not working in Firefox/Safari due to bug: https://bugzilla.mozilla.org/show_bug.cgi?id=1367251
-                    // TODO: Remove if condition and use just this if the createImageBitmap bug gets fixed
                     return (Resource as any).createImageBitmapFromBlob(blob, {
                       flipY: flipY,
                       premultiplyAlpha: false,
                       skipColorSpaceConversion: false
                     });
-                  }
                 }).then(deferred.resolve);
               }).otherwise(deferred.reject);
           };
